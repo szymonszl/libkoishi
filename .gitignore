@@ -53,3 +53,5 @@ dkms.conf
 
 # libkoishi database files
 *.ksh
+# test executable
+koishi
