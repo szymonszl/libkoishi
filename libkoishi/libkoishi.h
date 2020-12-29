@@ -30,23 +30,23 @@ struct ksh_rule_t {
 };
 typedef struct ksh_rule_t ksh_rule_t;
 
-struct ksh_markovdict_t {
+struct ksh_model_t {
     int mapsize; // hashmap[2^mapsize]
-	ksh_rule_t** hashmap;
+	ksh_rule_t **hashmap;
 };
-typedef struct ksh_markovdict_t ksh_markovdict_t;
+typedef struct ksh_model_t ksh_model_t;
 
-ksh_markovdict_t* ksh_createdict(int);
+ksh_model_t *ksh_createmodel(int mapsize);
 
-void ksh_makeassociation(ksh_markovdict_t*, ksh_u32char, ksh_u32char, ksh_u32char, ksh_u32char, ksh_u32char);
-ksh_u32char ksh_getcontinuation(ksh_markovdict_t*, ksh_u32char, ksh_u32char, ksh_u32char, ksh_u32char);
+void ksh_makeassociation(ksh_model_t *model, ksh_u32char n1, ksh_u32char n2, ksh_u32char n3, ksh_u32char n4, ksh_u32char c);
+ksh_u32char ksh_getcontinuation(ksh_model_t *model, ksh_u32char n1, ksh_u32char n2, ksh_u32char n3, ksh_u32char n4);
 
-void ksh_trainmarkov(ksh_markovdict_t*, const char*);
-void ksh_createstring(ksh_markovdict_t*, char*, size_t);
+void ksh_trainmarkov(ksh_model_t *model, const char *str);
+void ksh_createstring(ksh_model_t *model, char *buf, size_t bufsize);
 
-void ksh_savedict(ksh_markovdict_t*, FILE*);
-void ksh_loaddict(ksh_markovdict_t*, FILE*);
+void ksh_savemodel(ksh_model_t *model, FILE *f);
+void ksh_loadmodel(ksh_model_t *model, FILE *f);
 
-void ksh_freedict(ksh_markovdict_t*);
+void ksh_freemodel(ksh_model_t *);
 
 #endif
