@@ -3,12 +3,16 @@
 #include <string.h>
 
 #define RND_IMPLEMENTATION
+#define RND_U32 uint32_t
+#define RND_U64 uint64_t
 #include "rnd.h"
 
 #ifdef KSH_DEBUG
-#define D(__FMT, ...) printf("\033[92m[K] " __FMT "\033[0m\n", __VA_ARGS__)
+#define D(__FMT) printf("\033[92m[K] " __FMT "\033[0m\n")
+#define Df(__FMT, ...) printf("\033[92m[K] " __FMT "\033[0m\n", __VA_ARGS__)
 #else
-#define D(__FMT, ...)
+#define D(__FMT)
+#define Df(__FMT, ...)
 #endif
 // TODO: error checking everywhere (esp malloc), error-code return values
 
@@ -83,9 +87,9 @@ fnv_32a_folded(void *buf, size_t len, int foldto) {
 
 ksh_rule_t*
 resolve_rule(ksh_model_t *model, ksh_u32char *name, uint32_t *hashptr) {
-	D("Resolving rule %4x%4x%4x%4x", name[0], name[1], name[1], name[3]);
+	Df("Resolving rule %4x%4x%4x%4x", name[0], name[1], name[2], name[3]);
 	uint32_t hash = fnv_32a_folded(name, 4*sizeof(ksh_u32char), model->mapsize);
-	D("hash: %8x", hash);
+	Df("hash: %8x", hash);
 	if (hashptr)
 		*hashptr = hash;
 	// optionally return the hash to the caller, for example to create a new rule under it
@@ -163,23 +167,15 @@ resolve_create_cont(ksh_rule_t *rule, ksh_u32char ch) {
 void
 ksh_makeassociation(
 	ksh_model_t *model,
-	ksh_u32char n1,
-	ksh_u32char n2,
-	ksh_u32char n3,
-	ksh_u32char n4,
+	ksh_u32char *name,
 	ksh_u32char ch
 )
 {
-	ksh_u32char name[4];
-	name[0] = n1;
-	name[1] = n2;
-	name[2] = n3;
-	name[3] = n4;
 	uint32_t hash;
 	ksh_rule_t *rule = resolve_rule(model, name, &hash);
 	if (!rule) {
 		rule = malloc(sizeof(ksh_rule_t));
-		memcpy(rule->name, name, sizeof(name));
+		memcpy(rule->name, name, 4*sizeof(ksh_u32char));
 		rule->cont = NULL;
 		rule->probtotal = 0;
 		for (int i = 0; i < KSH_CONTINUATIONS_PER_HEADER; i++) {
@@ -201,36 +197,108 @@ ksh_makeassociation(
 ksh_u32char
 ksh_getcontinuation(
 	ksh_model_t *model,
-	ksh_u32char n1,
-	ksh_u32char n2,
-	ksh_u32char n3,
-	ksh_u32char n4
+	ksh_u32char *name
 )
 {
-	ksh_u32char name[4];
-	name[0] = n1;
-	name[1] = n2;
-	name[2] = n3;
-	name[3] = n4;
 	ksh_rule_t *rule = resolve_rule(model, name, NULL);
-	D("Resolved rule %2x%2x%2x%2x to %p", n1, n2, n3, n4, rule);
+	Df("Resolved rule %2x%2x%2x%2x to %p", name[0], name[1], name[2], name[3], rule);
 	if (!rule)
 		return 0;
-	D("... with pt%ld", rule->probtotal);
-	int64_t r = model->rng(model->rngdata, rule->probtotal);
+	Df("... with pt%ld", rule->probtotal);
+	int64_t r = model->rng(model->rngdata, rule->probtotal+1);
 	for (int i = 0; i < KSH_CONTINUATIONS_PER_HEADER; i++) {
-		D("Rrng%ld r%2x(%c) p%u", r, rule->character[i], rule->character[i], rule->probability[i]);
+		Df("Rrng%ld r%2x(%c) p%u", r, rule->character[i], rule->character[i], rule->probability[i]);
 		r -= rule->probability[i];
 		if (r <= 0)
 			return rule->character[i];
 	}
 	for(ksh_continuations_t *c = rule->cont; c != NULL; c = c->next) {
 		for (int i = 0; i < KSH_CONTINUATIONS_PER_STRUCT; i++) {
-			D("Crng%ld r%2x(%c) p%u", r, c->character[i], c->character[i], c->probability[i]);
+			Df("Crng%ld r%2x(%c) p%u", r, c->character[i], c->character[i], c->probability[i]);
 			r -= c->probability[i];
 			if (r <= 0)
 				return c->character[i];
 		}
 	}
 	return 0;
+}
+
+void
+ksh_trainmarkov(ksh_model_t *model, const char *str)
+{
+	ksh_u32char buf[4] = {0};
+	ksh_u32char ch = 0;
+	int i = 0;
+	while (str[i] != 0) {
+		/*
+		 * rfc3629 for reference:
+		 * Char. number range  |        UTF-8 octet sequence
+		 *    (hexadecimal)    |              (binary)
+		 * --------------------+--------------------------------------
+		 * 0000 0000-0000 007F | 0xxxxxxx
+		 * 0000 0080-0000 07FF | 110xxxxx 10xxxxxx
+		 * 0000 0800-0000 FFFF | 1110xxxx 10xxxxxx 10xxxxxx
+		 * 0001 0000-0010 FFFF | 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+		 */
+		if (!(str[i] & 0x80)) { // high bit not set, ascii
+			ch = str[i++];
+		} else if ((str[i] & 0xE0) == 0xC0) { // TODO: check whether continuation characters are valid
+			ch = (str[i++] & 0x1F) << 6;
+			ch |= (str[i++] & 0x3F);
+		} else if ((str[i] & 0xF0) == 0xE0) {
+			ch = (str[i++] & 0x0F) << 12;
+			ch |= (str[i++] & 0x3F) << 6;
+			ch |= (str[i++] & 0x3F);
+		} else if ((str[i] & 0xF8) == 0xF0) {
+			ch = (str[i++] & 0x07) << 18;
+			ch |= (str[i++] & 0x3F) << 12;
+			ch |= (str[i++] & 0x3F) << 6;
+			ch |= (str[i++] & 0x3F);
+		} else {
+			// invalid character, drop byte to resynchronize
+			D("Ignored invalid UTF-8 character!");
+			i++;
+			continue;
+		}
+		// teach buffer->ch
+		ksh_makeassociation(model, buf, ch);
+		// push ch to buffer for next loop
+		memmove(&buf[0], &buf[1], 3*sizeof(ksh_u32char));
+		buf[3] = ch;
+	}
+	// after the string has been studied, teach to end on it
+	ksh_makeassociation(model, buf, 0);
+}
+
+void
+ksh_createstring(ksh_model_t *model, char *buf, size_t bufsize)
+{
+	ksh_u32char name[4] = {0};
+	ksh_u32char ch = 0;
+	int i = 0;
+	while (i < (bufsize-1)) {
+		ch = ksh_getcontinuation(model, name);
+		// write character as utf-8
+		if (ch < 0x80) {
+			buf[i++] = ch;
+		} else if (ch < 0x800) {
+			if (i+1 > (bufsize-1)) break;
+			buf[i++] = 0xC0 | (ch >> 6);
+			buf[i++] = 0x80 | (ch & 0x3F);
+		} else if (ch < 0x10000) {
+			if (i+2 > (bufsize-1)) break;
+			buf[i++] = 0xE0 | (ch >> 12);
+			buf[i++] = 0x80 | (ch >> 6 & 0x3F);
+			buf[i++] = 0x80 | (ch & 0x3F);
+		} else {
+			if (i+3 > (bufsize-1)) break;
+			buf[i++] = 0xF0 | (ch >> 18);
+			buf[i++] = 0x80 | (ch >> 12 & 0x3F);
+			buf[i++] = 0x80 | (ch >> 6 & 0x3F);
+			buf[i++] = 0x80 | (ch & 0x3F);
+		}
+		memmove(&name[0], &name[1], 3*sizeof(ksh_u32char));
+		name[3] = ch;
+	}
+	buf[i] = 0;
 }

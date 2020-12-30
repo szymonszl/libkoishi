@@ -42,8 +42,8 @@ typedef struct ksh_model_t ksh_model_t;
 
 ksh_model_t *ksh_createmodel(int mapsize, int64_t (*rng)(void*, int64_t), uint32_t seed);
 
-void ksh_makeassociation(ksh_model_t *model, ksh_u32char n1, ksh_u32char n2, ksh_u32char n3, ksh_u32char n4, ksh_u32char ch);
-ksh_u32char ksh_getcontinuation(ksh_model_t *model, ksh_u32char n1, ksh_u32char n2, ksh_u32char n3, ksh_u32char n4);
+void ksh_makeassociation(ksh_model_t *model, ksh_u32char *name, ksh_u32char ch);
+ksh_u32char ksh_getcontinuation(ksh_model_t *model, ksh_u32char *name);
 
 void ksh_trainmarkov(ksh_model_t *model, const char *str);
 void ksh_createstring(ksh_model_t *model, char *buf, size_t bufsize);
