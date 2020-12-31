@@ -223,6 +223,83 @@ ksh_getcontinuation(
 	return 0;
 }
 
+/*
+ * rfc3629 for reference:
+ * Char. number range  |        UTF-8 octet sequence
+ *    (hexadecimal)    |              (binary)
+ * --------------------+--------------------------------------
+ * 0000 0000-0000 007F | 0xxxxxxx
+ * 0000 0080-0000 07FF | 110xxxxx 10xxxxxx
+ * 0000 0800-0000 FFFF | 1110xxxx 10xxxxxx 10xxxxxx
+ * 0001 0000-0010 FFFF | 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+ */
+
+int
+utf8_readcharacter(const char *str, ksh_u32char *out)
+{
+	#define UTF8_VERIFY_TOP_BITS(UP_TO) \
+		for (int _VERIFY_I = 1; _VERIFY_I < UP_TO; _VERIFY_I++) \
+			if ((str[_VERIFY_I] & 0xC0) != 0x80) return -1;
+	ksh_u32char ch;
+	int bytesread = 0;
+	if (!(str[0] & 0x80)) { // high bit not set, ascii
+		bytesread = 1;
+		ch = str[0];
+	} else if ((str[0] & 0xE0) == 0xC0) {
+		UTF8_VERIFY_TOP_BITS(2)
+		bytesread = 2;
+		ch = (str[0] & 0x1F) << 6;
+		ch |= (str[1] & 0x3F);
+		if (ch < 0x80)
+			return -1;
+	} else if ((str[0] & 0xF0) == 0xE0) {
+		UTF8_VERIFY_TOP_BITS(3)
+		bytesread = 3;
+		ch = (str[0] & 0x0F) << 12;
+		ch |= (str[1] & 0x3F) << 6;
+		ch |= (str[2] & 0x3F);
+		if (ch < 0x800)
+			return -1;
+	} else if ((str[0] & 0xF8) == 0xF0) {
+		UTF8_VERIFY_TOP_BITS(4)
+		bytesread = 4;
+		ch = (str[0] & 0x07) << 18;
+		ch |= (str[1] & 0x3F) << 12;
+		ch |= (str[2] & 0x3F) << 6;
+		ch |= (str[3] & 0x3F);
+		if (ch < 0x10000)
+			return -1;
+	} else {
+		// invalid character
+		return -1;
+	}
+	*out = ch;
+	return bytesread;
+}
+
+int
+utf8_writecharacter(ksh_u32char ch, char *buf) {
+	if (ch < 0x80) {
+		buf[0] = ch;
+		return 1;
+	} else if (ch < 0x800) {
+		buf[0] = 0xC0 | (ch >> 6);
+		buf[1] = 0x80 | (ch & 0x3F);
+		return 2;
+	} else if (ch < 0x10000) {
+		buf[0] = 0xE0 | (ch >> 12);
+		buf[1] = 0x80 | (ch >> 6 & 0x3F);
+		buf[2] = 0x80 | (ch & 0x3F);
+		return 3;
+	} else {
+		buf[0] = 0xF0 | (ch >> 18 & 0x07);
+		buf[1] = 0x80 | (ch >> 12 & 0x3F);
+		buf[2] = 0x80 | (ch >> 6 & 0x3F);
+		buf[3] = 0x80 | (ch & 0x3F);
+		return 4;
+	}
+}
+
 void
 ksh_trainmarkov(ksh_model_t *model, const char *str)
 {
@@ -230,36 +307,12 @@ ksh_trainmarkov(ksh_model_t *model, const char *str)
 	ksh_u32char ch = 0;
 	int i = 0;
 	while (str[i] != 0) {
-		/*
-		 * rfc3629 for reference:
-		 * Char. number range  |        UTF-8 octet sequence
-		 *    (hexadecimal)    |              (binary)
-		 * --------------------+--------------------------------------
-		 * 0000 0000-0000 007F | 0xxxxxxx
-		 * 0000 0080-0000 07FF | 110xxxxx 10xxxxxx
-		 * 0000 0800-0000 FFFF | 1110xxxx 10xxxxxx 10xxxxxx
-		 * 0001 0000-0010 FFFF | 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-		 */
-		if (!(str[i] & 0x80)) { // high bit not set, ascii
-			ch = str[i++];
-		} else if ((str[i] & 0xE0) == 0xC0) { // TODO: check whether continuation characters are valid
-			ch = (str[i++] & 0x1F) << 6;
-			ch |= (str[i++] & 0x3F);
-		} else if ((str[i] & 0xF0) == 0xE0) {
-			ch = (str[i++] & 0x0F) << 12;
-			ch |= (str[i++] & 0x3F) << 6;
-			ch |= (str[i++] & 0x3F);
-		} else if ((str[i] & 0xF8) == 0xF0) {
-			ch = (str[i++] & 0x07) << 18;
-			ch |= (str[i++] & 0x3F) << 12;
-			ch |= (str[i++] & 0x3F) << 6;
-			ch |= (str[i++] & 0x3F);
-		} else {
-			// invalid character, drop byte to resynchronize
-			D("Ignored invalid UTF-8 character!");
+		int len = utf8_readcharacter(&str[i], &ch);
+		if (len < 0) { // skip over invalid characters i dont care
 			i++;
 			continue;
 		}
+		i += len;
 		// teach buffer->ch
 		ksh_makeassociation(model, buf, ch);
 		// push ch to buffer for next loop
@@ -279,24 +332,12 @@ ksh_createstring(ksh_model_t *model, char *buf, size_t bufsize)
 	while (i < (bufsize-1)) {
 		ch = ksh_getcontinuation(model, name);
 		// write character as utf-8
-		if (ch < 0x80) {
-			buf[i++] = ch;
-		} else if (ch < 0x800) {
-			if (i+1 > (bufsize-1)) break;
-			buf[i++] = 0xC0 | (ch >> 6);
-			buf[i++] = 0x80 | (ch & 0x3F);
-		} else if (ch < 0x10000) {
-			if (i+2 > (bufsize-1)) break;
-			buf[i++] = 0xE0 | (ch >> 12);
-			buf[i++] = 0x80 | (ch >> 6 & 0x3F);
-			buf[i++] = 0x80 | (ch & 0x3F);
-		} else {
-			if (i+3 > (bufsize-1)) break;
-			buf[i++] = 0xF0 | (ch >> 18);
-			buf[i++] = 0x80 | (ch >> 12 & 0x3F);
-			buf[i++] = 0x80 | (ch >> 6 & 0x3F);
-			buf[i++] = 0x80 | (ch & 0x3F);
-		}
+		char encoded[4];
+		int len = utf8_writecharacter(ch, encoded);
+		if ((i+len+1) >= bufsize)
+			break;
+		memcpy(&buf[i], encoded, len);
+		i += len;
 		memmove(&name[0], &name[1], 3*sizeof(ksh_u32char));
 		name[3] = ch;
 	}

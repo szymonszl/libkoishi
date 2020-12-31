@@ -28,9 +28,14 @@ int main(int argc, char **argv) {
 	c = ksh_getcontinuation(model, name2);
 	printf("Got the character '%c' as continuation to 'bcde'\n", c);
 
-	ksh_trainmarkov(model, "Grzegorz Brzęczyszczykiewicz, Chrząszczyrzewoszyce, powiat Łękołody.");
-	ksh_trainmarkov(model, "Grzegorz Brzęczyszczykiewicz, Chrząszczyrzewoszyce Małe, województwo Łękołodzkie.");
+	// simple long string with some random polish in it
+	ksh_trainmarkov(model, "Grzegorz Brzęczyszczykiewicz, Chrząszczyżewoszyce, powiat Łękołody.");
+	// a similar long string, just to cause the chain to jump around a bit
+	ksh_trainmarkov(model, "Grzegorz Brzęczyszczykiewicz, Chrząszczyżewoszyce Małe, województwo Łękołodzkie.");
+	// alternative timeline where Franciszek Dolas was captured by the Japanese and unicode wasnt a thing yet so he was interested to see how their systems handle both japanese and polish in the same string
 	ksh_trainmarkov(model, "Brzęczyszczykiewicz Grzegorz です.");
+	// invalid unicode sequences - only start byte, stray continuation, wrongly encoded NUL (should be stripped on read)
+	ksh_trainmarkov(model, "abc""\xF0""def""\x80""ghi""\xC0""\x80""jkl");
 	printf("Trained some strings with Unicode\n");
 
 	char buf[128];
