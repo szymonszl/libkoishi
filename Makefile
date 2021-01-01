@@ -13,6 +13,6 @@ run: koishi
 	./koishi
 
 gdb: koishi
-	gdb koishi
+	KSH_DEBUG=1 gdb koishi
 
 .PHONY: all run gdb libkoishi

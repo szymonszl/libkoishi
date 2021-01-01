@@ -49,7 +49,7 @@ void ksh_trainmarkov(ksh_model_t *model, const char *str);
 void ksh_createstring(ksh_model_t *model, char *buf, size_t bufsize);
 
 void ksh_savemodel(ksh_model_t *model, FILE *f);
-void ksh_loadmodel(ksh_model_t *model, FILE *f);
+int ksh_loadmodel(ksh_model_t *model, FILE *f);
 
 void ksh_freemodel(ksh_model_t *);
 

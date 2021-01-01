@@ -1,11 +1,24 @@
 #include <stdio.h>
 #include <libkoishi.h>
+#include <string.h>
+#include <stdlib.h>
+#include <signal.h>
+
+#define BREAK() if(debug)raise(SIGTRAP);
 
 int main(int argc, char **argv) {
 	puts("koishi.c - libkoishi example program");
 
+	int debug = 0;
+	if (getenv("KSH_DEBUG") && !strcmp(getenv("KSH_DEBUG"), "1")) {
+		debug = 1;
+		printf("Warning: debug tracing enabled, will raise SIGTRAP\n");
+	}
+
 	ksh_model_t *model = ksh_createmodel(16, NULL, 0xb00b);
 	printf("allocated model (%p)\n", model);
+
+	BREAK();
 
 	ksh_u32char name[] = {'a', 'b', 'c', 'd'};
 	ksh_u32char name2[] = {'b', 'c', 'd', 'e'};
@@ -21,12 +34,16 @@ int main(int argc, char **argv) {
 	ksh_makeassociation(model, name2, 'f');
 	printf("Made associations for 'abcdef', 'abcdf', 'abcdg'\n");
 
+	BREAK();
+
 	for (int i = 0; i < 5; i++) {
 		c = ksh_getcontinuation(model, name);
 		printf("Got the character '%c' as continuation to 'abcd'\n", c);
 	}
 	c = ksh_getcontinuation(model, name2);
 	printf("Got the character '%c' as continuation to 'bcde'\n", c);
+
+	BREAK();
 
 	// simple long string with some random polish in it
 	ksh_trainmarkov(model, "Grzegorz Brzęczyszczykiewicz, Chrząszczyżewoszyce, powiat Łękołody.");
@@ -38,9 +55,33 @@ int main(int argc, char **argv) {
 	ksh_trainmarkov(model, "abc""\xF0""def""\x80""ghi""\xC0""\x80""jkl");
 	printf("Trained some strings with Unicode\n");
 
+	BREAK();
+
+
 	char buf[128];
 	for (int i = 0; i < 10; i++) {
 		ksh_createstring(model, buf, 128);
+		printf("Generated string: '\033[97m%s\033[0m'\n", buf);
+	}
+
+	FILE *f = fopen("test.ksh", "w");
+	ksh_savemodel(model, f);
+	fclose(f);
+	printf("Saved model\n");
+
+	ksh_model_t *model2 = ksh_createmodel(8, NULL, 0x51d3b00b);
+	f = fopen("test.ksh", "r");
+	int r = ksh_loadmodel(model2, f);
+	if (r < 0) {
+		printf("Loading model failed (%d), file left at byte 0x%x\n", r, ftell(f));
+		fclose(f);
+		return 1;
+	}
+	BREAK();
+	fclose(f);
+	printf("Loaded model again from file\n");
+	for (int i = 0; i < 10; i++) {
+		ksh_createstring(model2, buf, 128);
 		printf("Generated string: '\033[97m%s\033[0m'\n", buf);
 	}
 
