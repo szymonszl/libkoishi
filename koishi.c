@@ -69,19 +69,24 @@ int main(int argc, char **argv) {
 	fclose(f);
 	printf("Saved model\n");
 
-	ksh_model_t *model2 = ksh_createmodel(8, NULL, 0x51d3b00b);
+	ksh_freemodel(model);
+	printf("Deallocated model\n");
+
+	BREAK();
+
+	model = ksh_createmodel(8, NULL, 0x51d3b00b);
 	f = fopen("test.ksh", "r");
-	int r = ksh_loadmodel(model2, f);
+	int r = ksh_loadmodel(model, f);
 	if (r < 0) {
 		printf("Loading model failed (%d), file left at byte 0x%x\n", r, ftell(f));
 		fclose(f);
 		return 1;
 	}
-	BREAK();
 	fclose(f);
+	BREAK();
 	printf("Loaded model again from file\n");
 	for (int i = 0; i < 10; i++) {
-		ksh_createstring(model2, buf, 128);
+		ksh_createstring(model, buf, 128);
 		printf("Generated string: '\033[97m%s\033[0m'\n", buf);
 	}
 

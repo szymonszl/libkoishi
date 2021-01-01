@@ -41,6 +41,7 @@ struct ksh_model_t {
 typedef struct ksh_model_t ksh_model_t;
 
 ksh_model_t *ksh_createmodel(int mapsize, int64_t (*rng)(void*, int64_t), uint32_t seed);
+void ksh_freemodel(ksh_model_t *model);
 
 void ksh_makeassociation(ksh_model_t *model, ksh_u32char *name, ksh_u32char ch);
 ksh_u32char ksh_getcontinuation(ksh_model_t *model, ksh_u32char *name);

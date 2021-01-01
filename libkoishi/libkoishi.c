@@ -47,6 +47,31 @@ ksh_createmodel(int mapsize, int64_t (*rng)(void*, int64_t), uint32_t seed)
 	return model;
 }
 
+void
+ksh_freemodel(ksh_model_t *model)
+{
+	if (model->rng = defaultrng) {
+		free(model->rngdata);
+	}
+	for (uint64_t i = 0; i < (1<<model->mapsize); i++) {
+		ksh_rule_t *rule, *nextrule;
+		ksh_continuations_t *cont, *nextcont;
+		rule = model->hashmap[i];
+		while (rule != NULL) {
+			cont = rule->cont;
+			while (cont != NULL) {
+				nextcont = cont->next;
+				free(cont);
+				cont = nextcont;
+			}
+			nextrule = rule->next;
+			free(rule);
+			rule = nextrule;
+		}
+	}
+	free(model);
+}
+
 uint32_t
 fnv_32a(void *buf, size_t len)
 {
